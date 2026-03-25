@@ -1,0 +1,1667 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Remove EXIF, XMP & metadata from images locally in your browser">
+    <meta name="theme-color" content="#1a1a2e">
+    <link rel="manifest" href="manifest.json">
+    <title>Metadata Stripper</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            min-height: 100vh;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            color: #e8e8e8;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 800px;
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        header {
+            text-align: center;
+            padding: 20px 0;
+        }
+
+        h1 {
+            font-size: clamp(1.5rem, 5vw, 2.5rem);
+            background: linear-gradient(90deg, #00d9ff, #00ff88);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 14px;
+        }
+
+        .logo {
+            width: 48px;
+            height: 48px;
+            flex-shrink: 0;
+        }
+
+        .logo path,
+        .logo circle,
+        .logo line,
+        .logo polyline {
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+
+        .subtitle {
+            color: #888;
+            font-size: 0.95rem;
+        }
+
+        .drop-zone {
+            border: 2px dashed #444;
+            border-radius: 16px;
+            padding: 40px 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            background: rgba(255, 255, 255, 0.02);
+            outline: none;
+        }
+
+        .drop-zone:hover, .drop-zone.dragover, .drop-zone:focus-visible {
+            border-color: #00d9ff;
+            background: rgba(0, 217, 255, 0.05);
+        }
+
+        .drop-zone:focus-visible {
+            box-shadow: 0 0 0 3px rgba(0, 217, 255, 0.3);
+        }
+
+        .drop-zone.has-image {
+            border-style: solid;
+            border-color: #00ff88;
+        }
+
+        .drop-icon {
+            font-size: 3rem;
+            margin-bottom: 15px;
+            display: block;
+        }
+
+        .drop-text {
+            color: #aaa;
+            font-size: 1rem;
+        }
+
+        .file-input {
+            display: none;
+        }
+
+        .preview-section {
+            display: none;
+            flex-direction: column;
+            gap: 20px;
+        }
+
+        .preview-section.visible {
+            display: flex;
+        }
+
+        .file-card {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 12px;
+            padding: 15px;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .file-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .file-card-title {
+            font-size: 0.9rem;
+            color: #00d9ff;
+            font-weight: 500;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            max-width: 70%;
+        }
+
+        .file-card-status {
+            padding: 4px 10px;
+            border-radius: 20px;
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+
+        .file-card-status.pending {
+            background: rgba(255, 193, 7, 0.2);
+            color: #ffc107;
+        }
+
+        .file-card-status.processing {
+            background: rgba(0, 217, 255, 0.2);
+            color: #00d9ff;
+        }
+
+        .file-card-status.done {
+            background: rgba(0, 255, 136, 0.2);
+            color: #00ff88;
+        }
+
+        .file-card-status.error {
+            background: rgba(255, 107, 107, 0.2);
+            color: #ff6b6b;
+        }
+
+        .file-card-content {
+            display: grid;
+            grid-template-columns: 120px 1fr;
+            gap: 15px;
+            align-items: start;
+        }
+
+        .file-card-thumb {
+            width: 100%;
+            aspect-ratio: 1;
+            object-fit: cover;
+            border-radius: 8px;
+            background: repeating-conic-gradient(#222 0% 25%, #333 0% 50%) 50% / 20px 20px;
+        }
+
+        .file-card-info {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .file-card-meta {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 8px;
+        }
+
+        .meta-item {
+            background: rgba(255, 255, 255, 0.05);
+            padding: 8px 10px;
+            border-radius: 6px;
+        }
+
+        .meta-label {
+            font-size: 0.65rem;
+            color: #888;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            margin-bottom: 2px;
+        }
+
+        .meta-value {
+            font-size: 0.85rem;
+            color: #fff;
+            font-weight: 500;
+        }
+
+        .meta-value.highlight {
+            color: #00ff88;
+        }
+
+        .meta-value.warning {
+            color: #ff6b6b;
+        }
+
+        .tag-list {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+            margin-top: 8px;
+        }
+
+        .tag {
+            background: rgba(255, 107, 107, 0.15);
+            padding: 4px 10px;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            color: #ff6b6b;
+        }
+
+        .tag.gps {
+            background: rgba(255, 50, 50, 0.25);
+            border: 1px solid rgba(255, 50, 50, 0.5);
+            color: #ff4444;
+            font-weight: 600;
+        }
+
+        .tag.removed {
+            text-decoration: line-through;
+            opacity: 0.5;
+            background: rgba(0, 255, 136, 0.15);
+            color: #00ff88;
+        }
+
+        .options-section {
+            background: rgba(255, 255, 255, 0.03);
+            border-radius: 12px;
+            padding: 15px;
+            display: none;
+        }
+
+        .options-section.visible {
+            display: block;
+        }
+
+        .options-title {
+            font-size: 0.85rem;
+            color: #888;
+            margin-bottom: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        .options-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+
+        .option-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .option-group-title {
+            font-size: 0.75rem;
+            color: #00d9ff;
+            font-weight: 500;
+        }
+
+        .checkbox-group {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .checkbox-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+        }
+
+        .checkbox-item input[type="checkbox"] {
+            width: 16px;
+            height: 16px;
+            accent-color: #00d9ff;
+            cursor: pointer;
+        }
+
+        .checkbox-item label {
+            font-size: 0.85rem;
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .format-select {
+            background: rgba(255, 255, 255, 0.1);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #fff;
+            padding: 10px 12px;
+            border-radius: 8px;
+            font-size: 0.9rem;
+            cursor: pointer;
+            outline: none;
+        }
+
+        .format-select:focus-visible {
+            border-color: #00d9ff;
+            box-shadow: 0 0 0 2px rgba(0, 217, 255, 0.2);
+        }
+
+        .format-select option {
+            background-color: #1a1a2e;
+            color: #fff;
+        }
+
+        .quality-slider {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .quality-slider input[type="range"] {
+            flex: 1;
+            accent-color: #00d9ff;
+        }
+
+        .quality-value {
+            font-size: 0.85rem;
+            color: #00ff88;
+            min-width: 40px;
+            text-align: right;
+        }
+
+        .action-section {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .strip-btn {
+            background: linear-gradient(135deg, #00d9ff, #00ff88);
+            border: none;
+            padding: 16px 32px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            color: #1a1a2e;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .strip-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(0, 217, 255, 0.3);
+        }
+
+        .strip-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        .strip-btn:focus-visible {
+            outline: 3px solid rgba(0, 217, 255, 0.5);
+            outline-offset: 2px;
+        }
+
+        .download-buttons {
+            display: none;
+            gap: 12px;
+        }
+
+        .download-buttons.visible {
+            display: flex;
+        }
+
+        .download-btn {
+            flex: 1;
+            background: transparent;
+            border: 2px solid #00ff88;
+            padding: 14px 28px;
+            font-size: 1rem;
+            font-weight: 600;
+            color: #00ff88;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+        }
+
+        .download-btn:hover {
+            background: rgba(0, 255, 136, 0.1);
+        }
+
+        .download-btn:focus-visible {
+            outline: 3px solid rgba(0, 255, 136, 0.5);
+            outline-offset: 2px;
+        }
+
+        .download-btn.secondary {
+            border-color: #00d9ff;
+            color: #00d9ff;
+        }
+
+        .download-btn.secondary:hover {
+            background: rgba(0, 217, 255, 0.1);
+        }
+
+        .progress-section {
+            display: none;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .progress-section.visible {
+            display: flex;
+        }
+
+        .progress-bar-container {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            height: 24px;
+            overflow: hidden;
+            position: relative;
+        }
+
+        .progress-bar {
+            background: linear-gradient(90deg, #00d9ff, #00ff88);
+            height: 100%;
+            width: 0%;
+            transition: width 0.3s ease;
+            border-radius: 10px;
+        }
+
+        .progress-text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: #fff;
+            text-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
+        }
+
+        .progress-label {
+            font-size: 0.85rem;
+            color: #aaa;
+            text-align: center;
+        }
+
+        .status-message {
+            text-align: center;
+            padding: 12px;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            display: none;
+            role: alert;
+        }
+
+        .status-message.visible {
+            display: block;
+        }
+
+        .status-message.success {
+            background: rgba(0, 255, 136, 0.1);
+            color: #00ff88;
+            border: 1px solid rgba(0, 255, 136, 0.3);
+        }
+
+        .status-message.error {
+            background: rgba(255, 107, 107, 0.1);
+            color: #ff6b6b;
+            border: 1px solid rgba(255, 107, 107, 0.3);
+        }
+
+        .status-message.warning {
+            background: rgba(255, 193, 7, 0.1);
+            color: #ffc107;
+            border: 1px solid rgba(255, 193, 7, 0.3);
+        }
+
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            padding: 20px;
+        }
+
+        .modal-overlay.visible {
+            display: flex;
+        }
+
+        .modal {
+            background: #1a1a2e;
+            border-radius: 16px;
+            padding: 24px;
+            max-width: 400px;
+            width: 100%;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .modal-title {
+            font-size: 1.2rem;
+            color: #ffc107;
+            margin-bottom: 12px;
+        }
+
+        .modal-text {
+            color: #aaa;
+            font-size: 0.95rem;
+            line-height: 1.5;
+            margin-bottom: 20px;
+        }
+
+        .modal-buttons {
+            display: flex;
+            gap: 12px;
+        }
+
+        .modal-btn {
+            flex: 1;
+            padding: 12px 20px;
+            border-radius: 8px;
+            font-size: 0.95rem;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .modal-btn.primary {
+            background: linear-gradient(135deg, #00d9ff, #00ff88);
+            border: none;
+            color: #1a1a2e;
+        }
+
+        .modal-btn.secondary {
+            background: transparent;
+            border: 1px solid #555;
+            color: #aaa;
+        }
+
+        .modal-btn:hover {
+            transform: translateY(-1px);
+        }
+
+        .modal-btn:focus-visible {
+            outline: 2px solid #00d9ff;
+            outline-offset: 2px;
+        }
+
+        footer {
+            margin-top: auto;
+            padding-top: 30px;
+            text-align: center;
+            color: #555;
+            font-size: 0.85rem;
+        }
+
+        @media (max-width: 600px) {
+            body {
+                padding: 15px;
+            }
+
+            .drop-zone {
+                padding: 30px 15px;
+            }
+
+            .file-card-content {
+                grid-template-columns: 1fr;
+            }
+
+            .file-card-thumb {
+                max-width: 150px;
+            }
+
+            .file-card-meta {
+                grid-template-columns: repeat(2, 1fr);
+            }
+
+            .options-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .download-buttons {
+                flex-direction: column;
+            }
+        }
+
+        .sr-only {
+            position: absolute;
+            width: 1px;
+            height: 1px;
+            padding: 0;
+            margin: -1px;
+            overflow: hidden;
+            clip: rect(0, 0, 0, 0);
+            white-space: nowrap;
+            border: 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>
+                <svg class="logo" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+                    <rect x="6" y="10" width="26" height="22" rx="3" stroke="url(#lg1)" stroke-width="2.5" fill="none"/>
+                    <circle cx="14" cy="18" r="3" fill="url(#lg2)"/>
+                    <polyline points="6,28 14,22 20,26 25,21 32,28" stroke="url(#lg1)" stroke-width="2" fill="none"/>
+                    <line x1="28" y1="8" x2="42" y2="38" stroke="#ff6b6b" stroke-width="2.5" stroke-linecap="round"/>
+                    <line x1="32" y1="8" x2="42" y2="28" stroke="#ff6b6b" stroke-width="2.5" stroke-linecap="round" opacity="0.5"/>
+                    <line x1="36" y1="8" x2="42" y2="18" stroke="#ff6b6b" stroke-width="2.5" stroke-linecap="round" opacity="0.25"/>
+                    <circle cx="35" cy="37" r="5" stroke="#00ff88" stroke-width="2.5" fill="rgba(0,255,136,0.1)"/>
+                    <polyline points="32.5,37 34.2,39 37.5,35" stroke="#00ff88" stroke-width="2.5" fill="none"/>
+                    <defs>
+                        <linearGradient id="lg1" x1="6" y1="10" x2="32" y2="32">
+                            <stop offset="0%" stop-color="#00d9ff"/>
+                            <stop offset="100%" stop-color="#00ff88"/>
+                        </linearGradient>
+                        <linearGradient id="lg2" x1="11" y1="15" x2="17" y2="21">
+                            <stop offset="0%" stop-color="#00d9ff"/>
+                            <stop offset="100%" stop-color="#00ff88"/>
+                        </linearGradient>
+                    </defs>
+                </svg>
+                Metadata Stripper
+            </h1>
+            <p class="subtitle">Remove EXIF, XMP & manifest data with one click</p>
+        </header>
+
+        <div class="drop-zone" id="dropZone" role="button" tabindex="0" aria-label="Drop zone for images. Click or press Enter to select files.">
+            <span class="drop-icon" aria-hidden="true">📁</span>
+            <p class="drop-text">Drop images here or click to select (multiple supported)</p>
+            <input type="file" class="file-input" id="fileInput" accept="image/*" multiple aria-hidden="true">
+        </div>
+
+        <div class="options-section" id="optionsSection">
+            <div class="options-title">⚙️ Options</div>
+            <div class="options-grid">
+                <div class="option-group">
+                    <div class="option-group-title">Camera & Location</div>
+                    <div class="checkbox-group" role="group" aria-label="Camera and location metadata">
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="stripExif" checked>
+                            <label for="stripExif">EXIF (camera settings)</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="stripGps" checked>
+                            <label for="stripGps">GPS (location data)</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="stripMakerNote" checked>
+                            <label for="stripMakerNote">MakerNotes (device info)</label>
+                        </div>
+                    </div>
+                </div>
+                <div class="option-group">
+                    <div class="option-group-title">Descriptive & Copyright</div>
+                    <div class="checkbox-group" role="group" aria-label="Descriptive metadata">
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="stripXmp" checked>
+                            <label for="stripXmp">XMP (Adobe, copyright)</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="stripIptc" checked>
+                            <label for="stripIptc">IPTC (keywords, captions)</label>
+                        </div>
+                    </div>
+                </div>
+                <div class="option-group">
+                    <div class="option-group-title">Embedded Data</div>
+                    <div class="checkbox-group" role="group" aria-label="Embedded data">
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="stripThumbnail" checked>
+                            <label for="stripThumbnail">Thumbnails (preview images)</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="stripFlashPix" checked>
+                            <label for="stripFlashPix">FlashPix (Kodak/HP)</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="stripPhotoshop" checked>
+                            <label for="stripPhotoshop">Photoshop IRB (8BIM)</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="stripPrintIm" checked>
+                            <label for="stripPrintIm">PrintIM (Epson)</label>
+                        </div>
+                    </div>
+                </div>
+                <div class="option-group">
+                    <div class="option-group-title">Color & Format</div>
+                    <div class="checkbox-group" role="group" aria-label="Color and format metadata">
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="stripIcc">
+                            <label for="stripIcc">ICC Profile (color)</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="stripJfif" checked>
+                            <label for="stripJfif">JFIF (format version)</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="stripComment" checked>
+                            <label for="stripComment">Comments</label>
+                        </div>
+                    </div>
+                </div>
+                <div class="option-group">
+                    <div class="option-group-title">Output Format</div>
+                    <select class="format-select" id="formatSelect" aria-label="Select output format">
+                        <option value="auto">Auto (same as input)</option>
+                        <option value="jpeg">JPEG</option>
+                        <option value="png">PNG</option>
+                        <option value="webp">WebP (best compression)</option>
+                    </select>
+                </div>
+                <div class="option-group">
+                    <div class="option-group-title">Quality</div>
+                    <div class="quality-slider">
+                        <input type="range" id="qualitySlider" min="50" max="100" value="95" aria-label="Output quality">
+                        <span class="quality-value" id="qualityValue">95%</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="preview-section" id="previewSection" role="region" aria-label="File previews" aria-live="polite">
+        </div>
+
+        <div class="progress-section" id="progressSection" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+            <div class="progress-bar-container">
+                <div class="progress-bar" id="progressBar"></div>
+                <span class="progress-text" id="progressText">0%</span>
+            </div>
+            <div class="progress-label" id="progressLabel">Processing...</div>
+        </div>
+
+        <div class="action-section">
+            <div class="status-message" id="statusMessage" role="alert" aria-live="polite"></div>
+            <button class="strip-btn" id="stripBtn" disabled aria-label="Strip all metadata from selected images">
+                <span aria-hidden="true">✨</span> Strip All Metadata
+            </button>
+            <div class="download-buttons" id="downloadButtons">
+                <button class="download-btn" id="downloadSingleBtn" aria-label="Download cleaned image">
+                    <span aria-hidden="true">💾</span> Download
+                </button>
+                <button class="download-btn secondary" id="downloadZipBtn" aria-label="Download all cleaned images as ZIP">
+                    <span aria-hidden="true">📦</span> Download All as ZIP
+                </button>
+            </div>
+        </div>
+
+        <footer>
+            <p>🔒 All processing happens locally in your browser</p>
+        </footer>
+    </div>
+
+    <div class="modal-overlay" id="warningModal" role="dialog" aria-labelledby="modalTitle" aria-modal="true">
+        <div class="modal">
+            <h2 class="modal-title" id="modalTitle">⚠️ Large File Warning</h2>
+            <p class="modal-text" id="modalText">Some files are large and may slow down your browser during processing. Continue anyway?</p>
+            <div class="modal-buttons">
+                <button class="modal-btn secondary" id="modalCancel">Cancel</button>
+                <button class="modal-btn primary" id="modalConfirm">Continue</button>
+            </div>
+        </div>
+    </div>
+
+    <canvas id="canvas" style="display: none;" aria-hidden="true"></canvas>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script>
+        const dropZone = document.getElementById('dropZone');
+        const fileInput = document.getElementById('fileInput');
+        const previewSection = document.getElementById('previewSection');
+        const stripBtn = document.getElementById('stripBtn');
+        const downloadButtons = document.getElementById('downloadButtons');
+        const downloadSingleBtn = document.getElementById('downloadSingleBtn');
+        const downloadZipBtn = document.getElementById('downloadZipBtn');
+        const statusMessage = document.getElementById('statusMessage');
+        const optionsSection = document.getElementById('optionsSection');
+        const progressSection = document.getElementById('progressSection');
+        const progressBar = document.getElementById('progressBar');
+        const progressText = document.getElementById('progressText');
+        const progressLabel = document.getElementById('progressLabel');
+        const qualitySlider = document.getElementById('qualitySlider');
+        const qualityValue = document.getElementById('qualityValue');
+        const formatSelect = document.getElementById('formatSelect');
+        const warningModal = document.getElementById('warningModal');
+        const modalCancel = document.getElementById('modalCancel');
+        const modalConfirm = document.getElementById('modalConfirm');
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        let files = [];
+        let pendingLargeFiles = [];
+
+        const SIZE_WARNING_THRESHOLD = 5 * 1024 * 1024;
+        const SIZE_HARD_THRESHOLD = 15 * 1024 * 1024;
+
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 B';
+            const k = 1024;
+            const sizes = ['B', 'KB', 'MB', 'GB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        function detectMetadata(uint8, mimeType) {
+            const detected = [];
+            const len = uint8.length;
+            
+            if (mimeType === 'image/jpeg') {
+                let i = 0;
+                while (i < len - 4) {
+                    if (uint8[i] === 0xFF) {
+                        const marker = uint8[i + 1];
+                        
+                        if (marker === 0xE0 && i + 10 < len) {
+                            const jfif = String.fromCharCode(...uint8.slice(i + 4, i + 9));
+                            if (jfif === 'JFIF\x00') {
+                                detected.push({ type: 'JFIF', position: i });
+                            }
+                        }
+                        
+                        if (marker === 0xE1 && i + 10 < len) {
+                            const header = String.fromCharCode(...uint8.slice(i + 4, i + 8));
+                            const segLen = (uint8[i + 2] << 8) | uint8[i + 3];
+                            
+                            if (header === 'Exif') {
+                                const exifData = uint8.slice(i + 10, i + 2 + segLen);
+                                const exifInfo = parseExifDetails(exifData);
+                                detected.push({ type: 'EXIF', position: i, length: segLen + 2, details: exifInfo });
+                            } else if (header === 'http' || header === 'Adob' || uint8[i + 4] === 0x3C) {
+                                detected.push({ type: 'XMP', position: i });
+                            }
+                        }
+                        
+                        if (marker === 0xE2) {
+                            const segLen = (uint8[i + 2] << 8) | uint8[i + 3];
+                            if (i + 14 < len) {
+                                const identifier = String.fromCharCode(...uint8.slice(i + 4, i + 14));
+                                if (identifier.startsWith('ICC_PROFILE')) {
+                                    detected.push({ type: 'ICC Profile', position: i });
+                                } else if (identifier.startsWith('FPXR')) {
+                                    detected.push({ type: 'FlashPix', position: i });
+                                }
+                            }
+                        }
+                        
+                        if (marker === 0xED && i + 14 < len) {
+                            const psHeader = String.fromCharCode(...uint8.slice(i + 4, i + 14));
+                            if (psHeader === 'Photoshop\x00\x00' || psHeader.startsWith('Photoshop')) {
+                                const segLen = (uint8[i + 2] << 8) | uint8[i + 3];
+                                const irbInfo = parsePhotoshopIRB(uint8.slice(i + 4, i + 2 + segLen));
+                                detected.push({ type: 'Photoshop IRB', position: i, details: irbInfo });
+                                if (irbInfo.hasIptc) {
+                                    detected.push({ type: 'IPTC', position: i });
+                                }
+                            }
+                        }
+                        
+                        if (marker === 0xFE) {
+                            detected.push({ type: 'Comment', position: i });
+                        }
+                        
+                        if (marker >= 0xD0 && marker <= 0xD7) {
+                            i += 2;
+                            continue;
+                        }
+                        
+                        if (marker !== 0x00 && marker !== 0xD8 && marker !== 0xD9) {
+                            const segLen = (uint8[i + 2] << 8) | uint8[i + 3];
+                            i += 2 + segLen;
+                            continue;
+                        }
+                    }
+                    i++;
+                }
+            }
+            
+            if (mimeType === 'image/png') {
+                const pngSignature = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A];
+                const isPng = pngSignature.every((byte, idx) => uint8[idx] === byte);
+                
+                if (isPng) {
+                    let offset = 8;
+                    while (offset < len - 8) {
+                        const chunkLen = (uint8[offset] << 24) | (uint8[offset + 1] << 16) | 
+                                        (uint8[offset + 2] << 8) | uint8[offset + 3];
+                        const chunkType = String.fromCharCode(...uint8.slice(offset + 4, offset + 8));
+                        
+                        if (chunkType === 'eXIf') {
+                            detected.push({ type: 'EXIF', position: offset });
+                        } else if (chunkType === 'iTXt' || chunkType === 'tEXt' || chunkType === 'zTXt') {
+                            const keyword = [];
+                            let k = offset + 8;
+                            while (k < offset + 8 + chunkLen && uint8[k] !== 0) {
+                                keyword.push(uint8[k]);
+                                k++;
+                            }
+                            const kw = String.fromCharCode(...keyword);
+                            if (kw === 'XML:com.adobe.xmp' || kw === 'Raw profile type xmp') {
+                                detected.push({ type: 'XMP', position: offset });
+                            } else if (kw === 'PrintIM') {
+                                detected.push({ type: 'PrintIM', position: offset });
+                            } else {
+                                detected.push({ type: 'Text Metadata', position: offset });
+                            }
+                        } else if (chunkType === 'iCCP') {
+                            detected.push({ type: 'ICC Profile', position: offset });
+                        }
+                        
+                        offset += 12 + chunkLen;
+                    }
+                }
+            }
+
+            if (mimeType === 'image/webp') {
+                if (len > 12 && uint8[0] === 0x52 && uint8[1] === 0x49 && uint8[2] === 0x46 && uint8[3] === 0x46) {
+                    if (uint8[8] === 0x57 && uint8[9] === 0x45 && uint8[10] === 0x42 && uint8[11] === 0x50) {
+                        let offset = 12;
+                        while (offset < len - 8) {
+                            const chunkType = String.fromCharCode(...uint8.slice(offset, offset + 4));
+                            const chunkLen = (uint8[offset + 7] << 24) | (uint8[offset + 6] << 16) | 
+                                           (uint8[offset + 5] << 8) | uint8[offset + 4];
+                            
+                            if (chunkType === 'EXIF') {
+                                detected.push({ type: 'EXIF', position: offset });
+                            } else if (chunkType === 'XMP ') {
+                                detected.push({ type: 'XMP', position: offset });
+                            } else if (chunkType === 'ICCP') {
+                                detected.push({ type: 'ICC Profile', position: offset });
+                            }
+                            
+                            offset += 8 + chunkLen + (chunkLen & 1);
+                        }
+                    }
+                }
+            }
+            
+            return detected;
+        }
+
+        function parseExifDetails(exifData) {
+            const details = {
+                hasGPS: false,
+                hasThumbnail: false,
+                hasMakerNote: false,
+                cameraMake: null,
+                cameraModel: null,
+                dateTime: null
+            };
+            
+            if (exifData.length < 8) return details;
+            
+            let offset = 0;
+            const byteOrder = exifData[0] === 0x4D && exifData[1] === 0x4D ? 'big' : 
+                              exifData[0] === 0x49 && exifData[1] === 0x49 ? 'little' : null;
+            
+            if (!byteOrder) return details;
+            
+            const read16 = byteOrder === 'big' 
+                ? (arr, off) => (arr[off] << 8) | arr[off + 1]
+                : (arr, off) => arr[off] | (arr[off + 1] << 8);
+            
+            const read32 = byteOrder === 'big'
+                ? (arr, off) => ((arr[off] << 24) | (arr[off + 1] << 16) | (arr[off + 2] << 8) | arr[off + 3]) >>> 0
+                : (arr, off) => (arr[off] | (arr[off + 1] << 8) | (arr[off + 2] << 16) | (arr[off + 3] << 24)) >>> 0;
+            
+            offset = 4;
+            const ifd0Offset = read32(exifData, offset);
+            
+            const readString = (arr, start, maxLen) => {
+                const chars = [];
+                for (let i = 0; i < maxLen && start + i < arr.length; i++) {
+                    if (arr[start + i] === 0) break;
+                    if (arr[start + i] >= 32 && arr[start + i] < 127) {
+                        chars.push(String.fromCharCode(arr[start + i]));
+                    }
+                }
+                return chars.join('');
+            };
+            
+            const readIFD = (ifdOffset, isSubIFD = false) => {
+                if (ifdOffset + 2 > exifData.length) return;
+                
+                const count = read16(exifData, ifdOffset);
+                let entryOffset = ifdOffset + 2;
+                
+                for (let i = 0; i < count && entryOffset + 12 <= exifData.length; i++) {
+                    const tag = read16(exifData, entryOffset);
+                    const type = read16(exifData, entryOffset + 2);
+                    const countVal = read32(exifData, entryOffset + 4);
+                    
+                    if (!isSubIFD) {
+                        if (tag === 0x010F) {
+                            const valOffset = countVal > 4 ? read32(exifData, entryOffset + 8) : entryOffset + 8;
+                            details.cameraMake = readString(exifData, valOffset, 64);
+                        } else if (tag === 0x0110) {
+                            const valOffset = countVal > 4 ? read32(exifData, entryOffset + 8) : entryOffset + 8;
+                            details.cameraModel = readString(exifData, valOffset, 64);
+                        } else if (tag === 0x0132) {
+                            const valOffset = countVal > 4 ? read32(exifData, entryOffset + 8) : entryOffset + 8;
+                            details.dateTime = readString(exifData, valOffset, 20);
+                        } else if (tag === 0x8769) {
+                            const subIFDOffset = read32(exifData, entryOffset + 8);
+                            readIFD(subIFDOffset, true);
+                        } else if (tag === 0x8825) {
+                            details.hasGPS = true;
+                        }
+                    }
+                    
+                    if (tag === 0x927C) {
+                        details.hasMakerNote = true;
+                    }
+                    if (tag === 0x8600 || tag === 0x0100 || tag === 0x0102) {
+                        details.hasThumbnail = true;
+                    }
+                    
+                    entryOffset += 12;
+                }
+            };
+            
+            try {
+                readIFD(ifd0Offset);
+            } catch (e) {}
+            
+            return details;
+        }
+
+        function parsePhotoshopIRB(data) {
+            const info = {
+                hasIptc: false,
+                has8bim: false,
+                hasExif: false,
+                layers: 0
+            };
+            
+            if (data.length < 14) return info;
+            
+            let offset = 0;
+            if (String.fromCharCode(...data.slice(0, 10)) === 'Photoshop\x00') {
+                offset = 14;
+            }
+            
+            while (offset + 12 < data.length) {
+                const sig = String.fromCharCode(...data.slice(offset, offset + 4));
+                if (sig !== '8BIM') {
+                    offset++;
+                    continue;
+                }
+                
+                info.has8bim = true;
+                const resourceId = (data[offset + 4] << 8) | data[offset + 5];
+                const nameLen = data[offset + 6] || 0;
+                const paddedNameLen = (nameLen + 1) % 2 === 0 ? nameLen + 1 : nameLen + 2;
+                
+                const dataSize = ((data[offset + 6 + paddedNameLen] << 24) | 
+                                  (data[offset + 7 + paddedNameLen] << 16) |
+                                  (data[offset + 8 + paddedNameLen] << 8) | 
+                                  data[offset + 9 + paddedNameLen]) >>> 0;
+                
+                if (resourceId === 0x0404) info.hasIptc = true;
+                if (resourceId === 0x0422) info.hasExif = true;
+                if (resourceId === 0x03E8) info.layers++;
+                
+                const paddedSize = dataSize % 2 === 0 ? dataSize : dataSize + 1;
+                offset += 10 + paddedNameLen + paddedSize;
+            }
+            
+            return info;
+        }
+
+        function extractICCProfile(uint8, mimeType) {
+            if (mimeType === 'image/jpeg') {
+                for (let i = 0; i < uint8.length - 4; i++) {
+                    if (uint8[i] === 0xFF && uint8[i + 1] === 0xE2) {
+                        const segLen = (uint8[i + 2] << 8) | uint8[i + 3];
+                        if (i + 4 + 12 < uint8.length) {
+                            const identifier = String.fromCharCode(...uint8.slice(i + 4, i + 14));
+                            if (identifier.startsWith('ICC_PROFILE')) {
+                                return {
+                                    data: uint8.slice(i + 4, i + 2 + segLen),
+                                    chunkNumber: uint8[i + 14],
+                                    totalChunks: uint8[i + 15]
+                                };
+                            }
+                        }
+                    }
+                }
+            }
+            return null;
+        }
+
+        function createICCMarker(iccData, chunkNum, totalChunks) {
+            const marker = new Uint8Array(iccData.length + 4);
+            marker[0] = 0xFF;
+            marker[1] = 0xE2;
+            const len = iccData.length + 2;
+            marker[2] = (len >> 8) & 0xFF;
+            marker[3] = len & 0xFF;
+            marker.set(iccData, 4);
+            return marker;
+        }
+
+        function insertICCIntoJPEG(jpegData, iccMarker) {
+            let insertPos = 2;
+            while (insertPos < jpegData.length - 4) {
+                if (jpegData[insertPos] === 0xFF) {
+                    const marker = jpegData[insertPos + 1];
+                    if (marker === 0xDA) break;
+                    if (marker >= 0xE0 && marker <= 0xEF) {
+                        const segLen = (jpegData[insertPos + 2] << 8) | jpegData[insertPos + 3];
+                        insertPos += 2 + segLen;
+                        continue;
+                    }
+                }
+                insertPos++;
+            }
+            
+            const result = new Uint8Array(jpegData.length + iccMarker.length);
+            result.set(jpegData.slice(0, insertPos));
+            result.set(iccMarker, insertPos);
+            result.set(jpegData.slice(insertPos), insertPos + iccMarker.length);
+            return result;
+        }
+
+        function getFileCardHTML(file, index) {
+            const seen = new Set();
+            const metadataTags = [];
+            
+            for (const m of file.metadata) {
+                if (seen.has(m.type)) continue;
+                seen.add(m.type);
+                
+                if (m.type === 'EXIF' && m.details) {
+                    metadataTags.push(`<span class="tag">EXIF</span>`);
+                    if (m.details.hasGPS) {
+                        metadataTags.push(`<span class="tag gps" title="Location coordinates found - high privacy risk">GPS</span>`);
+                    }
+                    if (m.details.hasMakerNote) {
+                        metadataTags.push(`<span class="tag">MakerNote</span>`);
+                    }
+                    if (m.details.hasThumbnail) {
+                        metadataTags.push(`<span class="tag">Thumbnail</span>`);
+                    }
+                } else {
+                    metadataTags.push(`<span class="tag">${m.type}</span>`);
+                }
+            }
+            
+            const cameraParts = [];
+            const exifMeta = file.metadata.find(m => m.type === 'EXIF' && m.details);
+            if (exifMeta) {
+                if (exifMeta.details.cameraMake) cameraParts.push(exifMeta.details.cameraMake);
+                if (exifMeta.details.cameraModel) cameraParts.push(exifMeta.details.cameraModel);
+            }
+            const cameraInfo = cameraParts.length > 0 ? cameraParts.join(' ') : '';
+            
+            return `
+                <div class="file-card" data-index="${index}">
+                    <div class="file-card-header">
+                        <span class="file-card-title" title="${file.name}">${file.name}</span>
+                        <span class="file-card-status pending" id="status-${index}">Pending</span>
+                    </div>
+                    <div class="file-card-content">
+                        <img class="file-card-thumb" id="thumb-${index}" alt="Preview of ${file.name}">
+                        <div class="file-card-info">
+                            <div class="file-card-meta">
+                                <div class="meta-item">
+                                    <div class="meta-label">Original Size</div>
+                                    <div class="meta-value">${formatBytes(file.size)}</div>
+                                </div>
+                                <div class="meta-item">
+                                    <div class="meta-label">Dimensions</div>
+                                    <div class="meta-value" id="dims-${index}">Loading...</div>
+                                </div>
+                                <div class="meta-item">
+                                    <div class="meta-label">New Size</div>
+                                    <div class="meta-value" id="newsize-${index}">-</div>
+                                </div>
+                                <div class="meta-item">
+                                    <div class="meta-label">Saved</div>
+                                    <div class="meta-value highlight" id="saved-${index}">-</div>
+                                </div>
+                                ${cameraInfo ? `
+                                <div class="meta-item" style="grid-column: span 2;">
+                                    <div class="meta-label">Camera</div>
+                                    <div class="meta-value">${cameraInfo}</div>
+                                </div>` : ''}
+                                ${exifMeta && exifMeta.details.dateTime ? `
+                                <div class="meta-item" style="grid-column: span 2;">
+                                    <div class="meta-label">Date Taken</div>
+                                    <div class="meta-value">${exifMeta.details.dateTime}</div>
+                                </div>` : ''}
+                            </div>
+                            ${metadataTags.length > 0 ? `
+                                <div class="tag-list" id="tags-${index}">${metadataTags.join('')}</div>
+                            ` : ''}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        function updateFileStatus(index, status, extraInfo = null) {
+            const statusEl = document.getElementById(`status-${index}`);
+            if (statusEl) {
+                statusEl.textContent = status;
+                statusEl.className = `file-card-status ${status.toLowerCase()}`;
+            }
+            
+            if (status === 'Done' && extraInfo) {
+                const newsizeEl = document.getElementById(`newsize-${index}`);
+                const savedEl = document.getElementById(`saved-${index}`);
+                const tagsEl = document.getElementById(`tags-${index}`);
+                
+                if (newsizeEl) newsizeEl.textContent = formatBytes(extraInfo.newSize);
+                if (savedEl) {
+                    const saved = extraInfo.originalSize - extraInfo.newSize;
+                    if (saved > 0) {
+                        const pct = ((saved / extraInfo.originalSize) * 100).toFixed(1);
+                        savedEl.textContent = `${formatBytes(saved)} (${pct}%)`;
+                    } else {
+                        savedEl.textContent = '0 B';
+                    }
+                }
+                if (tagsEl) {
+                    tagsEl.innerHTML = tagsEl.innerHTML.replace(/class="tag"/g, 'class="tag removed"');
+                }
+            }
+        }
+
+        async function loadFilePreview(file, index) {
+            return new Promise((resolve) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    const dataUrl = e.target.result;
+                    const thumbEl = document.getElementById(`thumb-${index}`);
+                    if (thumbEl) thumbEl.src = dataUrl;
+                    
+                    const img = new Image();
+                    img.onload = () => {
+                        const dimsEl = document.getElementById(`dims-${index}`);
+                        if (dimsEl) dimsEl.textContent = `${img.width} × ${img.height}`;
+                        file.width = img.width;
+                        file.height = img.height;
+                        resolve();
+                    };
+                    img.onerror = () => resolve();
+                    img.src = dataUrl;
+                };
+                reader.onerror = () => resolve();
+                reader.readAsDataURL(file.file);
+            });
+        }
+
+        function showStatus(message, type) {
+            statusMessage.textContent = message;
+            statusMessage.className = `status-message visible ${type}`;
+        }
+
+        function hideStatus() {
+            statusMessage.classList.remove('visible');
+        }
+
+        function showProgress(show = true) {
+            progressSection.classList.toggle('visible', show);
+            if (show) {
+                progressBar.style.width = '0%';
+                progressText.textContent = '0%';
+                progressSection.setAttribute('aria-valuenow', '0');
+            }
+        }
+
+        function updateProgress(percent, label = null) {
+            progressBar.style.width = `${percent}%`;
+            progressText.textContent = `${Math.round(percent)}%`;
+            progressSection.setAttribute('aria-valuenow', Math.round(percent));
+            if (label) progressLabel.textContent = label;
+        }
+
+        function showModal(title, text) {
+            document.getElementById('modalTitle').textContent = title;
+            document.getElementById('modalText').textContent = text;
+            warningModal.classList.add('visible');
+            modalConfirm.focus();
+        }
+
+        function hideModal() {
+            warningModal.classList.remove('visible');
+        }
+
+        async function handleFiles(fileList) {
+            pendingLargeFiles = [];
+            
+            for (const file of fileList) {
+                if (!file.type.startsWith('image/')) {
+                    showStatus(`"${file.name}" is not an image file`, 'error');
+                    continue;
+                }
+                
+                const arrayBuffer = await file.arrayBuffer();
+                const uint8 = new Uint8Array(arrayBuffer);
+                const metadata = detectMetadata(uint8, file.type);
+                
+                files.push({
+                    file: file,
+                    name: file.name,
+                    size: file.size,
+                    type: file.type,
+                    metadata: metadata,
+                    cleanedBlob: null,
+                    iccProfile: extractICCProfile(uint8, file.type),
+                    width: 0,
+                    height: 0
+                });
+                
+                if (file.size > SIZE_WARNING_THRESHOLD) {
+                    pendingLargeFiles.push(file.name);
+                }
+            }
+            
+            if (files.length === 0) return;
+            
+            if (pendingLargeFiles.length > 0) {
+                const names = pendingLargeFiles.slice(0, 3).join(', ');
+                const more = pendingLargeFiles.length > 3 ? ` and ${pendingLargeFiles.length - 3} more` : '';
+                showModal(
+                    '⚠️ Large File Warning',
+                    `${pendingLargeFiles.length} large file(s) detected: ${names}${more}. Processing may slow down your browser. Continue anyway?`
+                );
+                return;
+            }
+            
+            proceedWithFiles();
+        }
+
+        async function proceedWithFiles() {
+            previewSection.innerHTML = '';
+            
+            for (let i = 0; i < files.length; i++) {
+                previewSection.insertAdjacentHTML('beforeend', getFileCardHTML(files[i], i));
+            }
+            
+            for (let i = 0; i < files.length; i++) {
+                await loadFilePreview(files[i], i);
+            }
+            
+            previewSection.classList.add('visible');
+            optionsSection.classList.add('visible');
+            dropZone.classList.add('has-image');
+            stripBtn.disabled = false;
+            hideStatus();
+            
+            updateDownloadButtonVisibility();
+        }
+
+        function updateDownloadButtonVisibility() {
+            const hasCleaned = files.some(f => f.cleanedBlob !== null);
+            const singleFile = files.length === 1;
+            
+            downloadButtons.classList.toggle('visible', hasCleaned);
+            downloadSingleBtn.style.display = singleFile ? 'flex' : 'none';
+            downloadZipBtn.style.display = files.length > 1 ? 'flex' : 'none';
+        }
+
+        function getStripOptions() {
+            return {
+                stripExif: document.getElementById('stripExif').checked,
+                stripGps: document.getElementById('stripGps').checked,
+                stripMakerNote: document.getElementById('stripMakerNote').checked,
+                stripXmp: document.getElementById('stripXmp').checked,
+                stripIptc: document.getElementById('stripIptc').checked,
+                stripThumbnail: document.getElementById('stripThumbnail').checked,
+                stripFlashPix: document.getElementById('stripFlashPix').checked,
+                stripPhotoshop: document.getElementById('stripPhotoshop').checked,
+                stripPrintIm: document.getElementById('stripPrintIm').checked,
+                stripIcc: document.getElementById('stripIcc').checked,
+                stripJfif: document.getElementById('stripJfif').checked,
+                stripComment: document.getElementById('stripComment').checked,
+                format: formatSelect.value,
+                quality: parseInt(qualitySlider.value) / 100
+            };
+        }
+
+        function getOutputType(fileType, formatOption) {
+            if (formatOption === 'auto') {
+                if (fileType === 'image/png') return 'image/png';
+                if (fileType === 'image/webp') return 'image/webp';
+                return 'image/jpeg';
+            }
+            return `image/${formatOption}`;
+        }
+
+        async function stripMetadata() {
+            if (files.length === 0) return;
+            
+            const options = getStripOptions();
+            
+            stripBtn.disabled = true;
+            stripBtn.innerHTML = '<span aria-hidden="true">⏳</span> Processing...';
+            showProgress(true);
+            hideStatus();
+            
+            let processed = 0;
+            let errors = 0;
+            
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                updateFileStatus(i, 'Processing');
+                updateProgress((processed / files.length) * 100, `Processing ${file.name}...`);
+                
+                try {
+                    const objectUrl = URL.createObjectURL(file.file);
+                    const img = new Image();
+                    img.crossOrigin = 'anonymous';
+                    
+                    await new Promise((resolve, reject) => {
+                        img.onload = () => {
+                            URL.revokeObjectURL(objectUrl);
+                            resolve();
+                        };
+                        img.onerror = () => {
+                            URL.revokeObjectURL(objectUrl);
+                            reject(new Error('Failed to load image'));
+                        };
+                        img.src = objectUrl;
+                    });
+                    
+                    canvas.width = img.width;
+                    canvas.height = img.height;
+                    ctx.drawImage(img, 0, 0);
+                    
+                    const outputType = getOutputType(file.type, options.format);
+                    
+                    let blob = await new Promise((resolve) => {
+                        canvas.toBlob(resolve, outputType, options.quality);
+                    });
+                    
+                    if (!options.stripIcc && file.iccProfile && outputType === 'image/jpeg') {
+                        const arrayBuffer = await blob.arrayBuffer();
+                        const uint8 = new Uint8Array(arrayBuffer);
+                        const iccMarker = createICCMarker(file.iccProfile.data, 1, 1);
+                        const newJpeg = insertICCIntoJPEG(uint8, iccMarker);
+                        blob = new Blob([newJpeg], { type: 'image/jpeg' });
+                    }
+                    
+                    file.cleanedBlob = blob;
+                    updateFileStatus(i, 'Done', {
+                        newSize: blob.size,
+                        originalSize: file.size
+                    });
+                    
+                } catch (error) {
+                    console.error(`Error processing ${file.name}:`, error);
+                    updateFileStatus(i, 'Error');
+                    errors++;
+                }
+                
+                processed++;
+                updateProgress((processed / files.length) * 100, `Processed ${processed}/${files.length}`);
+            }
+            
+            showProgress(false);
+            stripBtn.innerHTML = '<span aria-hidden="true">✨</span> Strip All Metadata';
+            stripBtn.disabled = false;
+            
+            if (errors === 0) {
+                showStatus(`✅ Successfully processed ${files.length} file(s)!`, 'success');
+            } else {
+                showStatus(`⚠️ Processed ${files.length - errors} files, ${errors} error(s)`, 'warning');
+            }
+            
+            updateDownloadButtonVisibility();
+        }
+
+        function downloadSingle() {
+            const file = files.find(f => f.cleanedBlob !== null);
+            if (!file) return;
+            
+            const ext = file.cleanedBlob.type.split('/')[1];
+            const baseName = file.name.replace(/\.[^/.]+$/, '');
+            const newFileName = `${baseName}_clean.${ext === 'jpeg' ? 'jpg' : ext}`;
+            
+            const url = URL.createObjectURL(file.cleanedBlob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = newFileName;
+            a.click();
+            URL.revokeObjectURL(url);
+        }
+
+        async function downloadZip() {
+            if (typeof JSZip === 'undefined') {
+                showStatus('JSZip library not loaded. Please refresh the page.', 'error');
+                return;
+            }
+            
+            const zip = new JSZip();
+            
+            for (const file of files) {
+                if (file.cleanedBlob) {
+                    const ext = file.cleanedBlob.type.split('/')[1];
+                    const baseName = file.name.replace(/\.[^/.]+$/, '');
+                    const newFileName = `${baseName}_clean.${ext === 'jpeg' ? 'jpg' : ext}`;
+                    zip.file(newFileName, file.cleanedBlob);
+                }
+            }
+            
+            showProgress(true);
+            updateProgress(50, 'Generating ZIP file...');
+            
+            try {
+                const content = await zip.generateAsync({ type: 'blob' }, (metadata) => {
+                    updateProgress(metadata.percent, 'Generating ZIP file...');
+                });
+                
+                const url = URL.createObjectURL(content);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = 'cleaned_images.zip';
+                a.click();
+                URL.revokeObjectURL(url);
+                
+                showProgress(false);
+                showStatus('✅ ZIP file downloaded!', 'success');
+            } catch (error) {
+                showProgress(false);
+                showStatus('Error creating ZIP file', 'error');
+            }
+        }
+
+        function resetApp() {
+            files = [];
+            pendingLargeFiles = [];
+            previewSection.innerHTML = '';
+            previewSection.classList.remove('visible');
+            optionsSection.classList.remove('visible');
+            dropZone.classList.remove('has-image');
+            stripBtn.disabled = true;
+            downloadButtons.classList.remove('visible');
+            hideStatus();
+            showProgress(false);
+        }
+
+        dropZone.addEventListener('click', () => fileInput.click());
+        
+        dropZone.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                fileInput.click();
+            }
+        });
+
+        fileInput.addEventListener('change', (e) => {
+            if (e.target.files.length > 0) {
+                resetApp();
+                handleFiles(Array.from(e.target.files));
+            }
+        });
+
+        dropZone.addEventListener('dragover', (e) => {
+            e.preventDefault();
+            dropZone.classList.add('dragover');
+        });
+
+        dropZone.addEventListener('dragleave', () => {
+            dropZone.classList.remove('dragover');
+        });
+
+        dropZone.addEventListener('drop', (e) => {
+            e.preventDefault();
+            dropZone.classList.remove('dragover');
+            if (e.dataTransfer.files.length > 0) {
+                resetApp();
+                handleFiles(Array.from(e.dataTransfer.files));
+            }
+        });
+
+        stripBtn.addEventListener('click', stripMetadata);
+        downloadSingleBtn.addEventListener('click', downloadSingle);
+        downloadZipBtn.addEventListener('click', downloadZip);
+
+        qualitySlider.addEventListener('input', () => {
+            qualityValue.textContent = `${qualitySlider.value}%`;
+        });
+
+        modalCancel.addEventListener('click', () => {
+            hideModal();
+            resetApp();
+        });
+
+        modalConfirm.addEventListener('click', () => {
+            hideModal();
+            proceedWithFiles();
+        });
+
+        warningModal.addEventListener('click', (e) => {
+            if (e.target === warningModal) {
+                hideModal();
+                resetApp();
+            }
+        });
+
+        modalConfirm.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                hideModal();
+                resetApp();
+            }
+        });
+
+        window.addEventListener('dragover', (e) => e.preventDefault());
+        window.addEventListener('drop', (e) => e.preventDefault());
+
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('sw.js')
+                    .catch(() => {});
+            });
+        }
+    </script>
+</body>
+</html>
