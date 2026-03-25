@@ -2,7 +2,9 @@ const CACHE_NAME = 'metadata-stripper-v1';
 const ASSETS_TO_CACHE = [
     './',
     './index.html',
-    './manifest.json'
+    './manifest.json',
+    './icon-192.svg',
+    './icon-512.svg'
 ];
 
 self.addEventListener('install', (event) => {
