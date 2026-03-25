@@ -5,10 +5,9 @@ A client-side web tool to detect and remove metadata from images — directly in
 ## Features
 
 - **12 metadata types detected** — EXIF, GPS, XMP, IPTC, ICC Profile, MakerNote, Thumbnails, FlashPix, Photoshop IRB, PrintIM, JFIF, and Comments
-- **Granular control** — individually toggle which metadata types to strip
+- **Granular control** — losslessly strip or preserve specific metadata types when keeping the original format
 - **Batch processing** — drop multiple files at once, download individually or as a ZIP
-- **ICC Profile preservation** — optionally keep color profiles for accurate rendering
-- **Format conversion** — output as JPEG, PNG, or WebP with adjustable quality
+- **Format conversion** — output as JPEG, PNG, or WebP with adjustable quality and a clean re-encode
 - **EXIF details** — shows camera make/model, date taken, and GPS presence with visual privacy warnings
 - **PWA support** — install as a desktop or mobile app for offline use
 - **Accessible** — ARIA labels, keyboard navigation, and focus management
@@ -24,6 +23,11 @@ A client-side web tool to detect and remove metadata from images — directly in
 ## Privacy
 
 All processing runs entirely in your browser using the Canvas API. Images are never uploaded to any server.
+
+## Output Modes
+
+- **Auto (keep original format)** — performs lossless metadata filtering for JPEG, PNG, and WebP so granular metadata toggles work as expected
+- **JPEG / PNG / WebP output** — re-encodes the image into the selected format and produces a clean file without carrying metadata forward
 
 ## Usage
 
@@ -41,6 +45,12 @@ No build step required. Serve `index.html` with any static file server:
 npx serve .
 # or
 python -m http.server 8000
+```
+
+Run the metadata-core tests with:
+
+```bash
+node --test tests/metadata-core.test.js
 ```
 
 ## Tech Stack

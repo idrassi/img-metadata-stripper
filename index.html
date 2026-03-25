@@ -351,6 +351,12 @@
             text-align: right;
         }
 
+        .option-help {
+            color: #888;
+            font-size: 0.72rem;
+            line-height: 1.4;
+        }
+
         .action-section {
             display: flex;
             flex-direction: column;
@@ -757,8 +763,18 @@
             transition: opacity 0.2s ease;
         }
 
+        .tag-button {
+            border: none;
+            font: inherit;
+        }
+
         .tag.clickable:hover {
             opacity: 0.8;
+        }
+
+        .tag-button:focus-visible {
+            outline: 2px solid #00d9ff;
+            outline-offset: 2px;
         }
 
         .exif-detail-panel {
@@ -842,13 +858,13 @@
                 </svg>
                 Metadata Stripper
             </h1>
-            <p class="subtitle">Remove EXIF, XMP & manifest data with one click</p>
+            <p class="subtitle">Strip image metadata locally in your browser, with lossless control in original-format mode</p>
         </header>
 
         <div class="drop-zone" id="dropZone" role="button" tabindex="0" aria-label="Drop zone for images. Click or press Enter to select files.">
             <span class="drop-icon" aria-hidden="true">📁</span>
-            <p class="drop-text">Drop images here or click to select (multiple supported)</p>
-            <input type="file" class="file-input" id="fileInput" accept="image/*" multiple aria-hidden="true">
+            <p class="drop-text">Drop JPEG, PNG, or WebP images here, or click to select multiple files</p>
+            <input type="file" class="file-input" id="fileInput" accept="image/jpeg,image/png,image/webp" multiple aria-hidden="true">
         </div>
 
         <div class="options-section" id="optionsSection">
@@ -929,11 +945,12 @@
                 <div class="option-group">
                     <div class="option-group-title">Output Format</div>
                     <select class="format-select" id="formatSelect" aria-label="Select output format">
-                        <option value="auto">Auto (same as input)</option>
+                        <option value="auto">Auto (keep original format)</option>
                         <option value="jpeg">JPEG</option>
                         <option value="png">PNG</option>
                         <option value="webp">WebP (best compression)</option>
                     </select>
+                    <div class="option-help">Auto keeps the original file format and enables true per-metadata stripping. Choosing a format re-encodes the image and creates a clean output.</div>
                 </div>
                 <div class="option-group">
                     <div class="option-group-title">Quality</div>
@@ -941,6 +958,7 @@
                         <input type="range" id="qualitySlider" min="50" max="100" value="95" aria-label="Output quality">
                         <span class="quality-value" id="qualityValue">95%</span>
                     </div>
+                    <div class="option-help">Used only when converting to JPEG, PNG, or WebP output.</div>
                 </div>
             </div>
         </div>
@@ -1003,8 +1021,10 @@
 
     <canvas id="canvas" style="display: none;" aria-hidden="true"></canvas>
 
+    <script src="metadata-core.js"></script>
     <script src="jszip.min.js"></script>
     <script>
+        const metadataCore = window.MetadataCore;
         const dropZone = document.getElementById('dropZone');
         const fileInput = document.getElementById('fileInput');
         const previewSection = document.getElementById('previewSection');
@@ -1029,10 +1049,14 @@
 
         let files = [];
         let pendingLargeFiles = [];
+        let lastFocusedElement = null;
 
         const SIZE_WARNING_THRESHOLD = 5 * 1024 * 1024;
         const SIZE_LARGE_WARNING = 50 * 1024 * 1024;
         const SIZE_HARD_LIMIT = 100 * 1024 * 1024;
+        const MODAL_FOCUSABLE_SELECTOR = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
+        fileInput.accept = metadataCore.ACCEPT_ATTRIBUTE;
 
         function formatBytes(bytes) {
             if (bytes === 0) return '0 B';
@@ -1542,6 +1566,287 @@
             });
         }
 
+        function getExifMetadata(metadata) {
+            return metadata.find((entry) => entry.type === 'EXIF' && entry.details) || null;
+        }
+
+        function createMetaItem(label, value, valueId = null, valueClass = 'meta-value') {
+            const metaItem = document.createElement('div');
+            metaItem.className = 'meta-item';
+
+            const labelEl = document.createElement('div');
+            labelEl.className = 'meta-label';
+            labelEl.textContent = label;
+
+            const valueEl = document.createElement('div');
+            valueEl.className = valueClass;
+            if (valueId) valueEl.id = valueId;
+            valueEl.textContent = value;
+
+            metaItem.append(labelEl, valueEl);
+            return metaItem;
+        }
+
+        function createMetadataTag(label, tagType, index, options = {}) {
+            const tagEl = options.button ? document.createElement('button') : document.createElement('span');
+            tagEl.className = options.button ? 'tag clickable tag-button' : options.gps ? 'tag gps' : 'tag';
+            tagEl.dataset.tagType = tagType;
+            tagEl.textContent = label;
+            if (options.title) tagEl.title = options.title;
+            if (options.button) {
+                tagEl.type = 'button';
+                tagEl.dataset.action = 'toggle-exif';
+                tagEl.dataset.index = String(index);
+                tagEl.setAttribute('aria-expanded', 'false');
+                tagEl.setAttribute('aria-controls', `exif-detail-${index}`);
+            }
+            return tagEl;
+        }
+
+        function createExifDetailRow(label, value, isWarning = false) {
+            const row = document.createElement('div');
+            row.className = 'exif-detail-row';
+
+            const key = document.createElement('span');
+            key.className = 'exif-detail-key';
+            key.textContent = label;
+
+            const val = document.createElement('span');
+            val.className = isWarning ? 'exif-detail-val warning' : 'exif-detail-val';
+            val.textContent = value;
+
+            row.append(key, val);
+            return row;
+        }
+
+        function createFileCard(file, index) {
+            const fileCard = document.createElement('div');
+            fileCard.className = 'file-card';
+            fileCard.dataset.index = String(index);
+
+            const header = document.createElement('div');
+            header.className = 'file-card-header';
+
+            const headerLeft = document.createElement('div');
+            headerLeft.className = 'file-card-header-left';
+
+            const title = document.createElement('span');
+            title.className = 'file-card-title';
+            title.title = file.name;
+            title.textContent = file.name;
+            headerLeft.appendChild(title);
+
+            const status = document.createElement('span');
+            status.className = 'file-card-status pending';
+            status.id = `status-${index}`;
+            status.textContent = 'Pending';
+
+            const removeButton = document.createElement('button');
+            removeButton.type = 'button';
+            removeButton.className = 'file-card-remove';
+            removeButton.dataset.action = 'remove-file';
+            removeButton.dataset.index = String(index);
+            removeButton.setAttribute('aria-label', `Remove ${file.name}`);
+            removeButton.title = 'Remove file';
+            removeButton.textContent = '×';
+
+            header.append(headerLeft, status, removeButton);
+
+            const content = document.createElement('div');
+            content.className = 'file-card-content';
+
+            const thumb = document.createElement('img');
+            thumb.className = 'file-card-thumb';
+            thumb.id = `thumb-${index}`;
+            thumb.alt = `Preview of ${file.name}`;
+
+            const info = document.createElement('div');
+            info.className = 'file-card-info';
+
+            const metaGrid = document.createElement('div');
+            metaGrid.className = 'file-card-meta';
+            metaGrid.append(
+                createMetaItem('Original Size', formatBytes(file.size)),
+                createMetaItem('Dimensions', 'Loading...', `dims-${index}`),
+                createMetaItem('New Size', '-', `newsize-${index}`),
+                createMetaItem('Saved', '-', `saved-${index}`, 'meta-value highlight')
+            );
+            info.appendChild(metaGrid);
+
+            const tags = document.createElement('div');
+            tags.className = 'tag-list';
+            tags.id = `tags-${index}`;
+
+            const seen = new Set();
+            const exifMeta = getExifMetadata(file.metadata);
+            for (const metadata of file.metadata) {
+                if (seen.has(metadata.type)) continue;
+                seen.add(metadata.type);
+
+                if (metadata.type === 'EXIF' && metadata.details) {
+                    const hasExifDetails =
+                        Boolean(exifMeta.details.cameraMake || exifMeta.details.cameraModel || exifMeta.details.dateTime) ||
+                        exifMeta.details.hasGPS ||
+                        exifMeta.details.hasMakerNote ||
+                        exifMeta.details.hasThumbnail;
+                    tags.appendChild(createMetadataTag('EXIF', 'EXIF', index, hasExifDetails ? {
+                        button: true,
+                        title: 'View detected EXIF details'
+                    } : {}));
+                    if (metadata.details.hasGPS) {
+                        tags.appendChild(createMetadataTag('GPS', 'GPS', index, {
+                            gps: true,
+                            title: 'Location coordinates found'
+                        }));
+                    }
+                    if (metadata.details.hasMakerNote) {
+                        tags.appendChild(createMetadataTag('MakerNote', 'MakerNote', index));
+                    }
+                    if (metadata.details.hasThumbnail) {
+                        tags.appendChild(createMetadataTag('Thumbnail', 'Thumbnail', index));
+                    }
+                } else {
+                    tags.appendChild(createMetadataTag(metadata.type, metadata.type, index));
+                }
+            }
+
+            if (tags.childElementCount > 0) {
+                info.appendChild(tags);
+            }
+
+            if (exifMeta && exifMeta.details) {
+                const cameraParts = [];
+                if (exifMeta.details.cameraMake) cameraParts.push(exifMeta.details.cameraMake);
+                if (exifMeta.details.cameraModel) cameraParts.push(exifMeta.details.cameraModel);
+                const cameraInfo = cameraParts.join(' ');
+
+                const panel = document.createElement('div');
+                panel.className = 'exif-detail-panel';
+                panel.id = `exif-detail-${index}`;
+
+                if (cameraInfo) panel.appendChild(createExifDetailRow('Camera', cameraInfo));
+                if (exifMeta.details.dateTime) panel.appendChild(createExifDetailRow('Date Taken', exifMeta.details.dateTime));
+                if (exifMeta.details.hasGPS) panel.appendChild(createExifDetailRow('GPS', 'Location data present', true));
+                if (exifMeta.details.hasMakerNote) panel.appendChild(createExifDetailRow('MakerNote', 'Device-specific data present'));
+                if (exifMeta.details.hasThumbnail) panel.appendChild(createExifDetailRow('Thumbnail', 'Embedded preview present'));
+
+                if (panel.childElementCount > 0) {
+                    info.appendChild(panel);
+                }
+            }
+
+            content.append(thumb, info);
+            fileCard.append(header, content);
+            return fileCard;
+        }
+
+        function renderFileCards() {
+            previewSection.replaceChildren();
+            for (let i = 0; i < files.length; i++) {
+                previewSection.appendChild(createFileCard(files[i], i));
+            }
+        }
+
+        function tagTypeStillPresent(metadata, tagType) {
+            const exifMeta = getExifMetadata(metadata);
+            if (tagType === 'EXIF') return Boolean(exifMeta);
+            if (tagType === 'GPS') return Boolean(exifMeta && exifMeta.details && exifMeta.details.hasGPS);
+            if (tagType === 'MakerNote') return Boolean(exifMeta && exifMeta.details && exifMeta.details.hasMakerNote);
+            if (tagType === 'Thumbnail') return Boolean(exifMeta && exifMeta.details && exifMeta.details.hasThumbnail);
+            return metadata.some((entry) => entry.type === tagType);
+        }
+
+        function updateTagState(index, cleanedMetadata) {
+            const tagsEl = document.getElementById(`tags-${index}`);
+            if (!tagsEl) return;
+
+            tagsEl.querySelectorAll('[data-tag-type]').forEach((tagEl) => {
+                const stillPresent = tagTypeStillPresent(cleanedMetadata, tagEl.dataset.tagType);
+                tagEl.classList.toggle('removed', !stillPresent);
+                if (tagEl.dataset.action === 'toggle-exif' && !stillPresent) {
+                    tagEl.setAttribute('aria-expanded', 'false');
+                    const panel = document.getElementById(`exif-detail-${index}`);
+                    if (panel) panel.classList.remove('visible');
+                }
+            });
+        }
+
+        function updateFileStatus(index, status, extraInfo = null) {
+            const statusEl = document.getElementById(`status-${index}`);
+            if (statusEl) {
+                statusEl.textContent = status;
+                statusEl.className = `file-card-status ${status.toLowerCase()}`;
+            }
+
+            if (status === 'Done' && extraInfo) {
+                const newsizeEl = document.getElementById(`newsize-${index}`);
+                const savedEl = document.getElementById(`saved-${index}`);
+                if (newsizeEl) newsizeEl.textContent = formatBytes(extraInfo.newSize);
+                if (savedEl) {
+                    const saved = extraInfo.originalSize - extraInfo.newSize;
+                    if (saved > 0) {
+                        const pct = ((saved / extraInfo.originalSize) * 100).toFixed(1);
+                        savedEl.textContent = `${formatBytes(saved)} (${pct}%)`;
+                    } else {
+                        savedEl.textContent = '0 B';
+                    }
+                }
+                if (extraInfo.cleanedMetadata) {
+                    updateTagState(index, extraInfo.cleanedMetadata);
+                }
+            }
+        }
+
+        async function loadFilePreview(file, index) {
+            const thumbEl = document.getElementById(`thumb-${index}`);
+            const dimsEl = document.getElementById(`dims-${index}`);
+            if (!thumbEl) return;
+
+            const objectUrl = URL.createObjectURL(file.file);
+            thumbEl.onload = () => {
+                URL.revokeObjectURL(objectUrl);
+                thumbEl.onload = null;
+                thumbEl.onerror = null;
+            };
+            thumbEl.onerror = () => {
+                URL.revokeObjectURL(objectUrl);
+                thumbEl.onload = null;
+                thumbEl.onerror = null;
+                updateFileStatus(index, 'Error');
+            };
+            thumbEl.src = objectUrl;
+
+            try {
+                if ('createImageBitmap' in window) {
+                    const bitmap = await createImageBitmap(file.file);
+                    file.width = bitmap.width;
+                    file.height = bitmap.height;
+                    if (dimsEl) dimsEl.textContent = `${bitmap.width} × ${bitmap.height}`;
+                    bitmap.close();
+                    return;
+                }
+
+                await new Promise((resolve, reject) => {
+                    const img = new Image();
+                    const measurementUrl = URL.createObjectURL(file.file);
+                    img.onload = () => {
+                        file.width = img.width;
+                        file.height = img.height;
+                        if (dimsEl) dimsEl.textContent = `${img.width} × ${img.height}`;
+                        URL.revokeObjectURL(measurementUrl);
+                        resolve();
+                    };
+                    img.onerror = () => {
+                        URL.revokeObjectURL(measurementUrl);
+                        reject(new Error('Failed to load image preview'));
+                    };
+                    img.src = measurementUrl;
+                });
+            } catch (error) {
+                updateFileStatus(index, 'Error');
+            }
+        }
+
         function showStatus(message, type) {
             statusMessage.textContent = message;
             statusMessage.className = `status-message visible ${type}`;
@@ -1583,7 +1888,7 @@
             let rejectedFiles = [];
             
             for (const file of fileList) {
-                if (!file.type.startsWith('image/')) {
+                if (file.type && !file.type.startsWith('image/')) {
                     rejectedFiles.push({ name: file.name, reason: 'not an image' });
                     continue;
                 }
@@ -1889,6 +2194,313 @@
             showProgress(false);
         }
 
+        function hasPreservedMetadataSelection(options) {
+            return [
+                options.stripExif,
+                options.stripGps,
+                options.stripMakerNote,
+                options.stripXmp,
+                options.stripIptc,
+                options.stripThumbnail,
+                options.stripFlashPix,
+                options.stripPhotoshop,
+                options.stripPrintIm,
+                options.stripIcc,
+                options.stripJfif,
+                options.stripComment
+            ].some((value) => !value);
+        }
+
+        function updateOutputModeState() {
+            const isAuto = formatSelect.value === 'auto';
+            qualitySlider.disabled = isAuto;
+            qualityValue.style.opacity = isAuto ? '0.55' : '1';
+        }
+
+        function getModalFocusableElements() {
+            return Array.from(warningModal.querySelectorAll(MODAL_FOCUSABLE_SELECTOR))
+                .filter((el) => !el.disabled && el.offsetParent !== null);
+        }
+
+        function showModal(title, text) {
+            document.getElementById('modalTitle').textContent = title;
+            document.getElementById('modalText').textContent = text;
+            lastFocusedElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+            warningModal.classList.add('visible');
+            const [firstFocusable] = getModalFocusableElements();
+            if (firstFocusable) {
+                firstFocusable.focus();
+            }
+        }
+
+        function hideModal() {
+            warningModal.classList.remove('visible');
+            if (lastFocusedElement) {
+                lastFocusedElement.focus();
+            }
+            lastFocusedElement = null;
+        }
+
+        function handleModalKeydown(e) {
+            if (!warningModal.classList.contains('visible')) {
+                return;
+            }
+
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                hideModal();
+                resetApp();
+                return;
+            }
+
+            if (e.key !== 'Tab') {
+                return;
+            }
+
+            const focusable = getModalFocusableElements();
+            if (focusable.length === 0) {
+                return;
+            }
+
+            const first = focusable[0];
+            const last = focusable[focusable.length - 1];
+            if (e.shiftKey && document.activeElement === first) {
+                e.preventDefault();
+                last.focus();
+            } else if (!e.shiftKey && document.activeElement === last) {
+                e.preventDefault();
+                first.focus();
+            }
+        }
+
+        async function hydrateFileCards() {
+            renderFileCards();
+            for (let i = 0; i < files.length; i++) {
+                await loadFilePreview(files[i], i);
+            }
+        }
+
+        async function proceedWithFiles() {
+            await hydrateFileCards();
+            previewSection.classList.add('visible');
+            optionsSection.classList.add('visible');
+            dropZone.classList.add('has-image');
+            stripBtn.disabled = false;
+            hideStatus();
+            updateOutputModeState();
+            updateDownloadButtonVisibility();
+        }
+
+        function removeFile(index) {
+            files.splice(index, 1);
+            if (files.length === 0) {
+                resetApp();
+                return;
+            }
+            void hydrateFileCards();
+            updateDownloadButtonVisibility();
+        }
+
+        function toggleExifDetail(index) {
+            const panel = document.getElementById(`exif-detail-${index}`);
+            const button = previewSection.querySelector(`[data-action="toggle-exif"][data-index="${index}"]`);
+            if (!panel || !button) {
+                return;
+            }
+            const visible = panel.classList.toggle('visible');
+            button.setAttribute('aria-expanded', String(visible));
+        }
+
+        async function handleFiles(fileList) {
+            pendingLargeFiles = [];
+            const rejectedFiles = [];
+
+            for (const file of fileList) {
+                if (!file.type.startsWith('image/')) {
+                    rejectedFiles.push({ name: file.name, reason: 'not an image' });
+                    continue;
+                }
+
+                if (file.size > SIZE_HARD_LIMIT) {
+                    rejectedFiles.push({ name: file.name, reason: `too large (${formatBytes(file.size)}, max ${formatBytes(SIZE_HARD_LIMIT)})` });
+                    continue;
+                }
+
+                const arrayBuffer = await file.arrayBuffer();
+                const uint8 = new Uint8Array(arrayBuffer);
+                const detectedMimeType = metadataCore.detectMimeType(uint8);
+
+                if (!detectedMimeType) {
+                    rejectedFiles.push({ name: file.name, reason: 'unsupported format (JPEG, PNG, WebP only)' });
+                    continue;
+                }
+
+                if (file.type && metadataCore.SUPPORTED_MIME_TYPES.includes(file.type) && file.type !== detectedMimeType) {
+                    rejectedFiles.push({ name: file.name, reason: 'file type does not match content' });
+                    continue;
+                }
+
+                files.push({
+                    file,
+                    name: file.name,
+                    size: file.size,
+                    type: detectedMimeType,
+                    metadata: metadataCore.detectMetadata(uint8, detectedMimeType),
+                    cleanedMetadata: null,
+                    cleanedBlob: null,
+                    bytes: uint8,
+                    width: 0,
+                    height: 0
+                });
+
+                if (file.size > SIZE_WARNING_THRESHOLD) {
+                    pendingLargeFiles.push({ name: file.name, size: file.size });
+                }
+            }
+
+            if (rejectedFiles.length > 0) {
+                const lines = rejectedFiles.slice(0, 3).map((entry) => `"${entry.name}": ${entry.reason}`).join('\n');
+                const more = rejectedFiles.length > 3 ? `\nand ${rejectedFiles.length - 3} more` : '';
+                showStatus(`Skipped ${rejectedFiles.length} file(s):\n${lines}${more}`, 'error');
+            }
+
+            if (files.length === 0) return;
+
+            const hasVeryLargeFiles = pendingLargeFiles.some((entry) => entry.size > SIZE_LARGE_WARNING);
+            if (hasVeryLargeFiles) {
+                const largeFiles = pendingLargeFiles.filter((entry) => entry.size > SIZE_LARGE_WARNING);
+                const names = largeFiles.slice(0, 2).map((entry) => `${entry.name} (${formatBytes(entry.size)})`).join(', ');
+                const more = largeFiles.length > 2 ? ` and ${largeFiles.length - 2} more` : '';
+                showModal(
+                    'Large File Warning',
+                    `${largeFiles.length} file(s) over ${formatBytes(SIZE_LARGE_WARNING)}: ${names}${more}. These may significantly slow down your browser or cause memory issues. Continue anyway?`
+                );
+                return;
+            }
+
+            if (pendingLargeFiles.length > 0) {
+                const names = pendingLargeFiles.slice(0, 3).map((entry) => entry.name).join(', ');
+                const more = pendingLargeFiles.length > 3 ? ` and ${pendingLargeFiles.length - 3} more` : '';
+                showModal(
+                    'Large File Warning',
+                    `${pendingLargeFiles.length} large file(s) detected: ${names}${more}. Processing may slow down your browser. Continue anyway?`
+                );
+                return;
+            }
+
+            await proceedWithFiles();
+        }
+
+        async function stripMetadata() {
+            if (files.length === 0) return;
+
+            const options = getStripOptions();
+            if (options.format !== 'auto' && hasPreservedMetadataSelection(options)) {
+                showStatus('To preserve selected metadata types, keep Output Format on Auto. Format conversion creates a clean re-encoded image.', 'warning');
+                return;
+            }
+
+            stripBtn.disabled = true;
+            stripBtn.innerHTML = '<span aria-hidden="true">⏳</span> Processing...';
+            showProgress(true);
+            hideStatus();
+
+            let processed = 0;
+            let errors = 0;
+
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                updateFileStatus(i, 'Processing');
+                updateProgress((processed / files.length) * 100, `Processing ${file.name}...`);
+
+                try {
+                    let blob;
+
+                    if (options.format === 'auto') {
+                        const cleanedBytes = metadataCore.stripMetadataLossless(file.bytes, file.type, options);
+                        const outputType = metadataCore.detectMimeType(cleanedBytes) || file.type;
+                        blob = new Blob([cleanedBytes], { type: outputType });
+                    } else {
+                        const objectUrl = URL.createObjectURL(file.file);
+                        const img = new Image();
+
+                        await new Promise((resolve, reject) => {
+                            img.onload = () => {
+                                URL.revokeObjectURL(objectUrl);
+                                resolve();
+                            };
+                            img.onerror = () => {
+                                URL.revokeObjectURL(objectUrl);
+                                reject(new Error('Failed to load image'));
+                            };
+                            img.src = objectUrl;
+                        });
+
+                        canvas.width = img.width;
+                        canvas.height = img.height;
+                        ctx.clearRect(0, 0, canvas.width, canvas.height);
+                        ctx.drawImage(img, 0, 0);
+
+                        blob = await new Promise((resolve) => {
+                            canvas.toBlob(resolve, getOutputType(file.type, options.format), options.quality);
+                        });
+
+                        if (!blob) {
+                            throw new Error('Failed to encode image');
+                        }
+                    }
+
+                    const cleanedBytes = new Uint8Array(await blob.arrayBuffer());
+                    const cleanedMetadata = metadataCore.detectMetadata(cleanedBytes, blob.type);
+                    file.cleanedBlob = blob;
+                    file.cleanedMetadata = cleanedMetadata;
+
+                    updateFileStatus(i, 'Done', {
+                        newSize: blob.size,
+                        originalSize: file.size,
+                        cleanedMetadata
+                    });
+                } catch (error) {
+                    console.error(`Error processing ${file.name}:`, error);
+                    updateFileStatus(i, 'Error');
+                    errors += 1;
+                }
+
+                processed += 1;
+                updateProgress((processed / files.length) * 100, `Processed ${processed}/${files.length}`);
+            }
+
+            showProgress(false);
+            stripBtn.innerHTML = '<span aria-hidden="true">✨</span> Strip All Metadata';
+            stripBtn.disabled = false;
+
+            if (errors === 0) {
+                showStatus(`✅ Successfully processed ${files.length} file(s)!`, 'success');
+            } else {
+                showStatus(`⚠️ Processed ${files.length - errors} files, ${errors} error(s)`, 'warning');
+            }
+
+            updateDownloadButtonVisibility();
+        }
+
+        function resetApp() {
+            files = [];
+            pendingLargeFiles = [];
+            previewSection.replaceChildren();
+            previewSection.classList.remove('visible');
+            optionsSection.classList.remove('visible');
+            dropZone.classList.remove('has-image');
+            stripBtn.disabled = true;
+            downloadButtons.classList.remove('visible');
+            downloadSingleBtn.style.display = '';
+            downloadZipBtn.style.display = '';
+            fileInput.value = '';
+            hideStatus();
+            showProgress(false);
+            hideModal();
+            updateOutputModeState();
+        }
+
         dropZone.addEventListener('click', () => fileInput.click());
         
         dropZone.addEventListener('keydown', (e) => {
@@ -1931,8 +2543,33 @@
             qualityValue.textContent = `${qualitySlider.value}%`;
         });
 
-        document.getElementById('selectAllBtn').addEventListener('click', () => toggleAllCheckboxes(true));
-        document.getElementById('selectNoneBtn').addEventListener('click', () => toggleAllCheckboxes(false));
+        formatSelect.addEventListener('change', updateOutputModeState);
+        document.querySelectorAll('.checkbox-group input[type="checkbox"]').forEach((checkbox) => {
+            checkbox.addEventListener('change', updateOutputModeState);
+        });
+
+        previewSection.addEventListener('click', (e) => {
+            const actionEl = e.target.closest('[data-action]');
+            if (!actionEl) return;
+
+            const index = Number.parseInt(actionEl.dataset.index || '', 10);
+            if (Number.isNaN(index)) return;
+
+            if (actionEl.dataset.action === 'remove-file') {
+                removeFile(index);
+            } else if (actionEl.dataset.action === 'toggle-exif') {
+                toggleExifDetail(index);
+            }
+        });
+
+        document.getElementById('selectAllBtn').addEventListener('click', () => {
+            toggleAllCheckboxes(true);
+            updateOutputModeState();
+        });
+        document.getElementById('selectNoneBtn').addEventListener('click', () => {
+            toggleAllCheckboxes(false);
+            updateOutputModeState();
+        });
 
         modalCancel.addEventListener('click', () => {
             hideModal();
@@ -1958,8 +2595,12 @@
             }
         });
 
+        warningModal.addEventListener('keydown', handleModalKeydown);
+
         window.addEventListener('dragover', (e) => e.preventDefault());
         window.addEventListener('drop', (e) => e.preventDefault());
+
+        updateOutputModeState();
 
         let deferredPrompt = null;
         const installBanner = document.getElementById('installBanner');

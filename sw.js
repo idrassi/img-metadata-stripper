@@ -1,9 +1,10 @@
-const CACHE_NAME = 'metadata-stripper-v2';
+const CACHE_NAME = 'metadata-stripper-v3';
 const ASSETS_TO_CACHE = [
     './',
     './index.html',
     './manifest.json',
     './icon-512.svg',
+    './metadata-core.js',
     './jszip.min.js'
 ];
 
