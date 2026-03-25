@@ -127,13 +127,6 @@
             border: 1px solid rgba(255, 255, 255, 0.05);
         }
 
-        .file-card-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 12px;
-        }
-
         .file-card-title {
             font-size: 0.9rem;
             color: #00d9ff;
@@ -141,7 +134,7 @@
             overflow: hidden;
             text-overflow: ellipsis;
             white-space: nowrap;
-            max-width: 70%;
+            flex: 1;
         }
 
         .file-card-status {
@@ -691,6 +684,125 @@
             }
         }
 
+        .file-card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 12px;
+        }
+
+        .file-card-header-left {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            overflow: hidden;
+            flex: 1;
+        }
+
+        .file-card-remove {
+            background: none;
+            border: none;
+            color: #555;
+            font-size: 1.1rem;
+            cursor: pointer;
+            padding: 4px 8px;
+            line-height: 1;
+            border-radius: 4px;
+            transition: all 0.2s ease;
+            flex-shrink: 0;
+        }
+
+        .file-card-remove:hover {
+            color: #ff6b6b;
+            background: rgba(255, 107, 107, 0.15);
+        }
+
+        .file-card-remove:focus-visible {
+            outline: 2px solid #ff6b6b;
+            outline-offset: 1px;
+        }
+
+        .options-toggles {
+            display: flex;
+            gap: 8px;
+            margin-bottom: 12px;
+        }
+
+        .options-toggle-btn {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            color: #aaa;
+            padding: 5px 12px;
+            border-radius: 6px;
+            font-size: 0.72rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .options-toggle-btn:hover {
+            background: rgba(0, 217, 255, 0.1);
+            border-color: #00d9ff;
+            color: #00d9ff;
+        }
+
+        .options-toggle-btn:focus-visible {
+            outline: 2px solid #00d9ff;
+            outline-offset: 1px;
+        }
+
+        .tag.clickable {
+            cursor: pointer;
+            transition: opacity 0.2s ease;
+        }
+
+        .tag.clickable:hover {
+            opacity: 0.8;
+        }
+
+        .exif-detail-panel {
+            display: none;
+            margin-top: 8px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 6px;
+            padding: 10px;
+            font-size: 0.78rem;
+        }
+
+        .exif-detail-panel.visible {
+            display: block;
+        }
+
+        .exif-detail-row {
+            display: flex;
+            justify-content: space-between;
+            padding: 4px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+
+        .exif-detail-row:last-child {
+            border-bottom: none;
+        }
+
+        .exif-detail-key {
+            color: #888;
+        }
+
+        .exif-detail-val {
+            color: #fff;
+            font-weight: 500;
+            text-align: right;
+            max-width: 60%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        .exif-detail-val.warning {
+            color: #ff6b6b;
+        }
+
         .sr-only {
             position: absolute;
             width: 1px;
@@ -741,6 +853,10 @@
 
         <div class="options-section" id="optionsSection">
             <div class="options-title">⚙️ Options</div>
+            <div class="options-toggles">
+                <button class="options-toggle-btn" id="selectAllBtn" type="button">Select All</button>
+                <button class="options-toggle-btn" id="selectNoneBtn" type="button">Select None</button>
+            </div>
             <div class="options-grid">
                 <div class="option-group">
                     <div class="option-group-title">Camera & Location</div>
@@ -887,7 +1003,7 @@
 
     <canvas id="canvas" style="display: none;" aria-hidden="true"></canvas>
 
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="jszip.min.js"></script>
     <script>
         const dropZone = document.getElementById('dropZone');
         const fileInput = document.getElementById('fileInput');
@@ -915,7 +1031,8 @@
         let pendingLargeFiles = [];
 
         const SIZE_WARNING_THRESHOLD = 5 * 1024 * 1024;
-        const SIZE_HARD_THRESHOLD = 15 * 1024 * 1024;
+        const SIZE_LARGE_WARNING = 50 * 1024 * 1024;
+        const SIZE_HARD_LIMIT = 100 * 1024 * 1024;
 
         function formatBytes(bytes) {
             if (bytes === 0) return '0 B';
@@ -925,7 +1042,22 @@
             return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
         }
 
+        function validateFileType(uint8, claimedType) {
+            if (uint8.length < 4) return false;
+            
+            const isJpeg = uint8[0] === 0xFF && uint8[1] === 0xD8 && uint8[2] === 0xFF;
+            const isPng = uint8[0] === 0x89 && uint8[1] === 0x50 && uint8[2] === 0x4E && uint8[3] === 0x47;
+            const isWebp = uint8[0] === 0x52 && uint8[1] === 0x49 && uint8[2] === 0x46 && uint8[3] === 0x46 &&
+                          uint8.length > 11 && uint8[8] === 0x57 && uint8[9] === 0x45 && uint8[10] === 0x42 && uint8[11] === 0x50;
+            
+            if (claimedType === 'image/jpeg') return isJpeg;
+            if (claimedType === 'image/png') return isPng;
+            if (claimedType === 'image/webp') return isWebp;
+            return isJpeg || isPng || isWebp;
+        }
+
         function detectMetadata(uint8, mimeType) {
+            try {
             const detected = [];
             const len = uint8.length;
             
@@ -1059,6 +1191,10 @@
             }
             
             return detected;
+            } catch (e) {
+                console.error('Error detecting metadata:', e);
+                return [];
+            }
         }
 
         function parseExifDetails(exifData) {
@@ -1193,20 +1329,39 @@
 
         function extractICCProfile(uint8, mimeType) {
             if (mimeType === 'image/jpeg') {
-                for (let i = 0; i < uint8.length - 4; i++) {
+                const chunks = {};
+                let totalChunks = 0;
+                for (let i = 0; i < uint8.length - 16; i++) {
                     if (uint8[i] === 0xFF && uint8[i + 1] === 0xE2) {
                         const segLen = (uint8[i + 2] << 8) | uint8[i + 3];
-                        if (i + 4 + 12 < uint8.length) {
+                        if (i + 16 < uint8.length) {
                             const identifier = String.fromCharCode(...uint8.slice(i + 4, i + 14));
                             if (identifier.startsWith('ICC_PROFILE')) {
-                                return {
-                                    data: uint8.slice(i + 4, i + 2 + segLen),
-                                    chunkNumber: uint8[i + 14],
-                                    totalChunks: uint8[i + 15]
-                                };
+                                const chunkNum = uint8[i + 14];
+                                totalChunks = uint8[i + 15];
+                                chunks[chunkNum] = uint8.slice(i + 16, i + 2 + segLen);
                             }
                         }
                     }
+                }
+                if (totalChunks > 0 && Object.keys(chunks).length === totalChunks) {
+                    let totalLen = 0;
+                    const sortedChunks = [];
+                    for (let n = 1; n <= totalChunks; n++) {
+                        if (!chunks[n]) return null;
+                        totalLen += chunks[n].length;
+                        sortedChunks.push(chunks[n]);
+                    }
+                    const combined = new Uint8Array(totalLen);
+                    let offset = 0;
+                    for (const chunk of sortedChunks) {
+                        combined.set(chunk, offset);
+                        offset += chunk.length;
+                    }
+                    return { data: combined, chunkNumber: 1, totalChunks: 1 };
+                } else if (totalChunks <= 1 && Object.keys(chunks).length === 1) {
+                    const singleChunk = Object.values(chunks)[0];
+                    return { data: singleChunk, chunkNumber: 1, totalChunks: 1 };
                 }
             }
             return null;
@@ -1254,7 +1409,7 @@
                 seen.add(m.type);
                 
                 if (m.type === 'EXIF' && m.details) {
-                    metadataTags.push(`<span class="tag">EXIF</span>`);
+                    metadataTags.push(`<span class="tag clickable" onclick="toggleExifDetail(${index})" title="Click to view details">EXIF</span>`);
                     if (m.details.hasGPS) {
                         metadataTags.push(`<span class="tag gps" title="Location coordinates found - high privacy risk">GPS</span>`);
                     }
@@ -1276,12 +1431,25 @@
                 if (exifMeta.details.cameraModel) cameraParts.push(exifMeta.details.cameraModel);
             }
             const cameraInfo = cameraParts.length > 0 ? cameraParts.join(' ') : '';
+
+            let exifDetailRows = '';
+            if (exifMeta && exifMeta.details) {
+                const d = exifMeta.details;
+                if (cameraInfo) exifDetailRows += `<div class="exif-detail-row"><span class="exif-detail-key">Camera</span><span class="exif-detail-val">${cameraInfo}</span></div>`;
+                if (d.dateTime) exifDetailRows += `<div class="exif-detail-row"><span class="exif-detail-key">Date Taken</span><span class="exif-detail-val">${d.dateTime}</span></div>`;
+                if (d.hasGPS) exifDetailRows += `<div class="exif-detail-row"><span class="exif-detail-key">GPS</span><span class="exif-detail-val warning">Location data present</span></div>`;
+                if (d.hasMakerNote) exifDetailRows += `<div class="exif-detail-row"><span class="exif-detail-key">MakerNote</span><span class="exif-detail-val">Device-specific data present</span></div>`;
+                if (d.hasThumbnail) exifDetailRows += `<div class="exif-detail-row"><span class="exif-detail-key">Thumbnail</span><span class="exif-detail-val">Embedded preview present</span></div>`;
+            }
             
             return `
                 <div class="file-card" data-index="${index}">
                     <div class="file-card-header">
-                        <span class="file-card-title" title="${file.name}">${file.name}</span>
+                        <div class="file-card-header-left">
+                            <span class="file-card-title" title="${file.name}">${file.name}</span>
+                        </div>
                         <span class="file-card-status pending" id="status-${index}">Pending</span>
+                        <button class="file-card-remove" onclick="removeFile(${index})" aria-label="Remove ${file.name}" title="Remove file">&times;</button>
                     </div>
                     <div class="file-card-content">
                         <img class="file-card-thumb" id="thumb-${index}" alt="Preview of ${file.name}">
@@ -1303,19 +1471,12 @@
                                     <div class="meta-label">Saved</div>
                                     <div class="meta-value highlight" id="saved-${index}">-</div>
                                 </div>
-                                ${cameraInfo ? `
-                                <div class="meta-item" style="grid-column: span 2;">
-                                    <div class="meta-label">Camera</div>
-                                    <div class="meta-value">${cameraInfo}</div>
-                                </div>` : ''}
-                                ${exifMeta && exifMeta.details.dateTime ? `
-                                <div class="meta-item" style="grid-column: span 2;">
-                                    <div class="meta-label">Date Taken</div>
-                                    <div class="meta-value">${exifMeta.details.dateTime}</div>
-                                </div>` : ''}
                             </div>
                             ${metadataTags.length > 0 ? `
                                 <div class="tag-list" id="tags-${index}">${metadataTags.join('')}</div>
+                            ` : ''}
+                            ${exifDetailRows ? `
+                                <div class="exif-detail-panel" id="exif-detail-${index}">${exifDetailRows}</div>
                             ` : ''}
                         </div>
                     </div>
@@ -1367,10 +1528,16 @@
                         file.height = img.height;
                         resolve();
                     };
-                    img.onerror = () => resolve();
+                    img.onerror = () => {
+                        updateFileStatus(index, 'Error');
+                        resolve();
+                    };
                     img.src = dataUrl;
                 };
-                reader.onerror = () => resolve();
+                reader.onerror = () => {
+                    updateFileStatus(index, 'Error');
+                    resolve();
+                };
                 reader.readAsDataURL(file.file);
             });
         }
@@ -1413,15 +1580,27 @@
 
         async function handleFiles(fileList) {
             pendingLargeFiles = [];
+            let rejectedFiles = [];
             
             for (const file of fileList) {
                 if (!file.type.startsWith('image/')) {
-                    showStatus(`"${file.name}" is not an image file`, 'error');
+                    rejectedFiles.push({ name: file.name, reason: 'not an image' });
+                    continue;
+                }
+                
+                if (file.size > SIZE_HARD_LIMIT) {
+                    rejectedFiles.push({ name: file.name, reason: `too large (${formatBytes(file.size)}, max ${formatBytes(SIZE_HARD_LIMIT)})` });
                     continue;
                 }
                 
                 const arrayBuffer = await file.arrayBuffer();
                 const uint8 = new Uint8Array(arrayBuffer);
+                
+                if (!validateFileType(uint8, file.type)) {
+                    rejectedFiles.push({ name: file.name, reason: 'file type does not match content' });
+                    continue;
+                }
+                
                 const metadata = detectMetadata(uint8, file.type);
                 
                 files.push({
@@ -1436,18 +1615,38 @@
                     height: 0
                 });
                 
-                if (file.size > SIZE_WARNING_THRESHOLD) {
-                    pendingLargeFiles.push(file.name);
+                if (file.size > SIZE_LARGE_WARNING) {
+                    pendingLargeFiles.push({ name: file.name, size: file.size });
+                } else if (file.size > SIZE_WARNING_THRESHOLD) {
+                    pendingLargeFiles.push({ name: file.name, size: file.size });
                 }
+            }
+            
+            if (rejectedFiles.length > 0) {
+                const lines = rejectedFiles.slice(0, 3).map(f => `"${f.name}": ${f.reason}`).join('\n');
+                const more = rejectedFiles.length > 3 ? `\nand ${rejectedFiles.length - 3} more` : '';
+                showStatus(`Skipped ${rejectedFiles.length} file(s):\n${lines}${more}`, 'error');
             }
             
             if (files.length === 0) return;
             
+            const hasLargeFiles = pendingLargeFiles.some(f => f.size > SIZE_LARGE_WARNING);
+            if (hasLargeFiles) {
+                const largeFiles = pendingLargeFiles.filter(f => f.size > SIZE_LARGE_WARNING);
+                const names = largeFiles.slice(0, 2).map(f => `${f.name} (${formatBytes(f.size)})`).join(', ');
+                const more = largeFiles.length > 2 ? ` and ${largeFiles.length - 2} more` : '';
+                showModal(
+                    'Large File Warning',
+                    `${largeFiles.length} file(s) over ${formatBytes(SIZE_LARGE_WARNING)}: ${names}${more}. These may significantly slow down your browser or cause memory issues. Continue anyway?`
+                );
+                return;
+            }
+            
             if (pendingLargeFiles.length > 0) {
-                const names = pendingLargeFiles.slice(0, 3).join(', ');
+                const names = pendingLargeFiles.slice(0, 3).map(f => f.name).join(', ');
                 const more = pendingLargeFiles.length > 3 ? ` and ${pendingLargeFiles.length - 3} more` : '';
                 showModal(
-                    '⚠️ Large File Warning',
+                    'Large File Warning',
                     `${pendingLargeFiles.length} large file(s) detected: ${names}${more}. Processing may slow down your browser. Continue anyway?`
                 );
                 return;
@@ -1474,6 +1673,32 @@
             hideStatus();
             
             updateDownloadButtonVisibility();
+        }
+
+        function removeFile(index) {
+            files.splice(index, 1);
+            if (files.length === 0) {
+                resetApp();
+                return;
+            }
+            previewSection.innerHTML = '';
+            for (let i = 0; i < files.length; i++) {
+                previewSection.insertAdjacentHTML('beforeend', getFileCardHTML(files[i], i));
+            }
+            for (let i = 0; i < files.length; i++) {
+                loadFilePreview(files[i], i);
+            }
+            updateDownloadButtonVisibility();
+        }
+
+        function toggleExifDetail(index) {
+            const panel = document.getElementById(`exif-detail-${index}`);
+            if (panel) panel.classList.toggle('visible');
+        }
+
+        function toggleAllCheckboxes(checked) {
+            const checkboxes = document.querySelectorAll('.checkbox-group input[type="checkbox"]');
+            checkboxes.forEach(cb => cb.checked = checked);
         }
 
         function updateDownloadButtonVisibility() {
@@ -1706,6 +1931,9 @@
             qualityValue.textContent = `${qualitySlider.value}%`;
         });
 
+        document.getElementById('selectAllBtn').addEventListener('click', () => toggleAllCheckboxes(true));
+        document.getElementById('selectNoneBtn').addEventListener('click', () => toggleAllCheckboxes(false));
+
         modalCancel.addEventListener('click', () => {
             hideModal();
             resetApp();
@@ -1743,7 +1971,7 @@
         window.addEventListener('beforeinstallprompt', (e) => {
             e.preventDefault();
             deferredPrompt = e;
-            if (!sessionStorage.getItem(dismissedKey)) {
+            if (!localStorage.getItem(dismissedKey)) {
                 installBanner.classList.add('visible');
             }
         });
@@ -1758,7 +1986,7 @@
 
         installDismiss.addEventListener('click', () => {
             installBanner.classList.remove('visible');
-            sessionStorage.setItem(dismissedKey, '1');
+            localStorage.setItem(dismissedKey, '1');
         });
 
         window.addEventListener('appinstalled', () => {
@@ -1769,7 +1997,12 @@
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('sw.js')
-                    .catch(() => {});
+                    .then((reg) => {
+                        console.log('Service Worker registered:', reg.scope);
+                    })
+                    .catch((err) => {
+                        console.warn('Service Worker registration failed:', err);
+                    });
             });
         }
     </script>

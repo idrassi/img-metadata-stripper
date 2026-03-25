@@ -10,7 +10,7 @@
     "orientation": "portrait-primary",
     "icons": [
         {
-            "src": "icon-192.svg",
+            "src": "icon-512.svg",
             "sizes": "192x192",
             "type": "image/svg+xml",
             "purpose": "any"
@@ -29,6 +29,5 @@
         }
     ],
     "categories": ["utilities", "productivity"],
-    "screenshots": [],
     "prefer_related_applications": false
 }
