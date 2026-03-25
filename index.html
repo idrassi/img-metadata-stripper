@@ -2512,8 +2512,9 @@
 
         fileInput.addEventListener('change', (e) => {
             if (e.target.files.length > 0) {
+                const selectedFiles = Array.from(e.target.files);
                 resetApp();
-                handleFiles(Array.from(e.target.files));
+                handleFiles(selectedFiles);
             }
         });
 
@@ -2530,8 +2531,9 @@
             e.preventDefault();
             dropZone.classList.remove('dragover');
             if (e.dataTransfer.files.length > 0) {
+                const droppedFiles = Array.from(e.dataTransfer.files);
                 resetApp();
-                handleFiles(Array.from(e.dataTransfer.files));
+                handleFiles(droppedFiles);
             }
         });
 
