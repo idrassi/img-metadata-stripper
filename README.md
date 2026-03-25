@@ -62,3 +62,10 @@ node --test tests/metadata-core.test.js
 ## License
 
 [MIT](LICENSE)
+
+## Author
+
+**Mounir IDRASSI**  
+🌐 [amcrypto.jp](https://amcrypto.jp)  
+💻 [GitHub](https://github.com/idrassi)  
+🐦 [X/Twitter](https://x.com/idrassi)
