@@ -590,6 +590,69 @@
             outline-offset: 2px;
         }
 
+        .install-banner {
+            display: none;
+            align-items: center;
+            gap: 14px;
+            background: rgba(0, 217, 255, 0.08);
+            border: 1px solid rgba(0, 217, 255, 0.25);
+            border-radius: 12px;
+            padding: 14px 18px;
+        }
+
+        .install-banner.visible {
+            display: flex;
+        }
+
+        .install-banner-text {
+            flex: 1;
+            color: #ccc;
+            font-size: 0.9rem;
+            line-height: 1.4;
+        }
+
+        .install-banner-text strong {
+            color: #00d9ff;
+        }
+
+        .install-btn {
+            flex-shrink: 0;
+            background: linear-gradient(135deg, #00d9ff, #00ff88);
+            border: none;
+            padding: 10px 20px;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: #1a1a2e;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+        }
+
+        .install-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 15px rgba(0, 217, 255, 0.3);
+        }
+
+        .install-btn:focus-visible {
+            outline: 2px solid #00d9ff;
+            outline-offset: 2px;
+        }
+
+        .install-dismiss {
+            background: none;
+            border: none;
+            color: #666;
+            font-size: 1.2rem;
+            cursor: pointer;
+            padding: 4px;
+            line-height: 1;
+        }
+
+        .install-dismiss:hover {
+            color: #999;
+        }
+
         footer {
             margin-top: auto;
             padding-top: 30px;
@@ -790,6 +853,20 @@
                     <span aria-hidden="true">📦</span> Download All as ZIP
                 </button>
             </div>
+        </div>
+
+        <div class="install-banner" id="installBanner">
+            <svg width="36" height="36" viewBox="0 0 48 48" fill="none" aria-hidden="true">
+                <rect x="4" y="4" width="40" height="40" rx="10" stroke="#00d9ff" stroke-width="2.5" fill="none"/>
+                <path d="M24 14v14" stroke="#00ff88" stroke-width="2.5" stroke-linecap="round"/>
+                <path d="M18 22l6 6 6-6" stroke="#00ff88" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M14 30h20" stroke="#00d9ff" stroke-width="2.5" stroke-linecap="round"/>
+            </svg>
+            <div class="install-banner-text">
+                <strong>Install app</strong> — use offline, anytime, no browser needed
+            </div>
+            <button class="install-btn" id="installBtn">Install</button>
+            <button class="install-dismiss" id="installDismiss" aria-label="Dismiss install banner">&times;</button>
         </div>
 
         <footer>
@@ -1655,6 +1732,39 @@
 
         window.addEventListener('dragover', (e) => e.preventDefault());
         window.addEventListener('drop', (e) => e.preventDefault());
+
+        let deferredPrompt = null;
+        const installBanner = document.getElementById('installBanner');
+        const installBtn = document.getElementById('installBtn');
+        const installDismiss = document.getElementById('installDismiss');
+
+        const dismissedKey = 'install-banner-dismissed';
+
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPrompt = e;
+            if (!sessionStorage.getItem(dismissedKey)) {
+                installBanner.classList.add('visible');
+            }
+        });
+
+        installBtn.addEventListener('click', async () => {
+            if (!deferredPrompt) return;
+            deferredPrompt.prompt();
+            const result = await deferredPrompt.userChoice;
+            deferredPrompt = null;
+            installBanner.classList.remove('visible');
+        });
+
+        installDismiss.addEventListener('click', () => {
+            installBanner.classList.remove('visible');
+            sessionStorage.setItem(dismissedKey, '1');
+        });
+
+        window.addEventListener('appinstalled', () => {
+            deferredPrompt = null;
+            installBanner.classList.remove('visible');
+        });
 
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
